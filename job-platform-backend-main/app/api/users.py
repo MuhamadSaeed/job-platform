@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.db.dependencies import get_current_user
+from app.db.dependencies import get_current_user, get_current_applicant, get_current_hr, get_current_company
 from app.models.user import User
 
 router = APIRouter(
@@ -21,6 +21,9 @@ def get_me(
         "national_id": current_user.national_id,
         "age": current_user.age,
         "gender": current_user.gender,
+        "role": current_user.role,  # ضفنا الـ role هنا كمان عشان تشوفه في الـ response
         "email_verified": current_user.email_verified,
         "phone_verified": current_user.phone_verified
     }
+
+

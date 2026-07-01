@@ -4,6 +4,9 @@ from fastapi import FastAPI
 from app.db.init_db import init_db
 from app.api.auth import router as auth_router
 from app.api.users import router as users_router
+from app.api.hr import router as hr_router
+from app.api.applicant import router as applicant_router
+from app.api.company import router as company_router
 app = FastAPI(
     title="Job Platform API",
     version="1.0.0"
@@ -26,6 +29,9 @@ def startup():
 
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(hr_router)
+app.include_router(applicant_router)
+app.include_router(company_router)
 
 @app.get("/")
 def root():

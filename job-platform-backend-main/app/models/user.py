@@ -1,7 +1,9 @@
 from sqlalchemy import String, Integer, Boolean
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+# عملنا import لموديل الشركة هنا عشان الـ relationship تشوفه
+from app.models.company_profile import CompanyProfile 
 
 
 class User(Base):
@@ -19,10 +21,16 @@ class User(Base):
 
     hashed_password: Mapped[str] = mapped_column(String(255))
 
-    role: Mapped[str] = mapped_column(
-    String(20),
-    default="applicant"
-)
+    role: Mapped[str] = mapped_column(String(20), default="applicant")
 
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     phone_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # العلاقة الجديدة مع بروفايل الـ HR
+    hr_profile: Mapped["HRProfile"] = relationship("HRProfile", back_populates="user", uselist=False)
+    
+    # العلاقة مع بروفايل الـ Applicant
+    applicant_profile: Mapped["ApplicantProfile"] = relationship("ApplicantProfile", back_populates="user", uselist=False)
+    
+    # السطر السحري اللي كان ناقص: العلاقة مع بروفايل الشركة
+    company_profile: Mapped["CompanyProfile"] = relationship("CompanyProfile", back_populates="user", uselist=False)
