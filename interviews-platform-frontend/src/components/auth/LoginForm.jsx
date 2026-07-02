@@ -1,8 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { loginUser } from "@/services/auth.service";
+import {
+  loginUser,
+  getCurrentUser,
+} from "@/services/auth.service";
 import { useRouter } from "next/navigation";
+
 export default function LoginForm() {
   const router = useRouter();
 
@@ -22,17 +26,32 @@ export default function LoginForm() {
     e.preventDefault();
 
     try {
-        const response = await loginUser(formData);
+      // Login
+      const response = await loginUser(formData);
 
-        localStorage.setItem(
+      // Save Token
+      localStorage.setItem(
         "access_token",
         response.access_token
-        );
+      );
 
+      // Get current user
+      const user = await getCurrentUser();
+
+      console.log(user);
+
+      // Redirect حسب الـ Role
+      if (user.role === "hr") {
+        router.push("/hr");
+      } else if (user.role === "applicant") {
+        router.push("/applicant");
+      } else if (user.role === "company") {
+        router.push("/company");
+      } else {
         router.push("/");
+      }
     } catch (error) {
       console.error(error);
-
       alert(error.message);
     }
   };

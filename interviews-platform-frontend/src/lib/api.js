@@ -25,11 +25,15 @@ async function request(endpoint, options = {}) {
 
   const data = await response.json();
 
-  if (!response.ok) {
-    throw new Error(
-      data.detail || "Something went wrong"
-    );
-  }
+if (!response.ok) {
+  const error = new Error(
+    data.detail || "Something went wrong"
+  );
+
+  error.status = response.status;
+
+  throw error;
+}
 
   return data;
 }

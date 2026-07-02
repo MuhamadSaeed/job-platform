@@ -7,10 +7,7 @@ export async function registerUser(userData) {
   });
 }
 
-export async function loginUser({
-  email,
-  password,
-}) {
+export async function loginUser({ email, password }) {
   const formData = new URLSearchParams();
 
   formData.append("username", email);
@@ -28,4 +25,19 @@ export async function loginUser({
 
 export async function getCurrentUser() {
   return request("/users/me");
+}
+
+export async function getHrProfile() {
+  return request("/hr/profile");
+}
+
+export async function getApplicantProfile() {
+  return request("/applicant/profile");
+}
+
+export async function updateHrProfile(profileData) {
+  return request("/hr/profile", {
+    method: "PUT",
+    body: JSON.stringify(profileData),
+  });
 }

@@ -1,7 +1,8 @@
 "use client";
-import request from "@/lib/api";
+
 import { registerUser } from "@/services/auth.service";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 const roles = [
   {
@@ -19,6 +20,8 @@ const roles = [
 ];
 
 export default function SignupForm() {
+  const router = useRouter();
+
   const [formData, setFormData] = useState({
     full_name: "",
     age: "",
@@ -37,22 +40,23 @@ export default function SignupForm() {
     }));
   };
 
-const handleSubmit = async (e) => {
-  e.preventDefault();
+  const handleSubmit = async (e) => {
+    e.preventDefault();
 
-  try {
-    const response = await registerUser({
-      ...formData,
-      age: Number(formData.age),
-    });
+    try {
+      await registerUser({
+        ...formData,
+        age: Number(formData.age),
+      });
 
-    console.log(response);
+alert("Account created successfully");
+router.push("/login");
 
-    alert("Account created successfully");
-  } catch (error) {
-    alert(error.message);
-  }
-};
+
+    } catch (error) {
+      alert(error.message);
+    }
+  };
 
   return (
     <div className="w-full max-w-3xl bg-white rounded-3xl shadow-lg p-8">
@@ -86,20 +90,20 @@ const handleSubmit = async (e) => {
         />
 
         <div>
-        <label className="block mb-2 text-sm font-medium text-slate-700">
+          <label className="block mb-2 text-sm font-medium text-slate-700">
             Gender
-        </label>
+          </label>
 
-        <select
+          <select
             name="gender"
             value={formData.gender}
             onChange={handleChange}
             className="w-full border border-slate-300 rounded-xl px-4 py-3 outline-none focus:border-[#2563EB]"
-        >
+          >
             <option value="">Select Gender</option>
             <option value="male">Male</option>
             <option value="female">Female</option>
-        </select>
+          </select>
         </div>
 
         <Input
