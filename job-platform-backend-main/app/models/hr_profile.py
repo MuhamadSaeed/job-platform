@@ -17,5 +17,10 @@ class HRProfile(Base):
     cv_path: Mapped[str] = mapped_column(String(255), nullable=True)           # مسار الـ CV بتاعه (اختياري)
     bio: Mapped[str] = mapped_column(Text, nullable=True)                      # نبذة تعريفية
     linkedin_url: Mapped[str] = mapped_column(String(255), nullable=True)      # رابط لينكد إن
+    
+    # --- حقول الـ HR الجديدة المضافة لتحديث البروفايل ---
+    skills: Mapped[str] = mapped_column(String(500), nullable=True)            # المهارات (اختياري للـ HR)
+    achievements: Mapped[str] = mapped_column(String(500), nullable=True)      # الإنجازات (اختياري للـ HR)
+    profile_picture_path: Mapped[str] = mapped_column(String(255), nullable=True) # مسار الصورة الشخصية
 
     user: Mapped["User"] = relationship(back_populates="hr_profile")

@@ -1,10 +1,9 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 
-# الشكل اللي الطالب هيبعت بيه البيانات وهو بيحدث بروفايله
 class ApplicantProfileUpdate(BaseModel):
     is_student: bool = Field(False, description="هل أنت طالب حالياً؟")
-    university: str = Field(..., max_length=255, description="الجامعة") # (...) تعني حقل إجباري
+    university: str = Field(..., max_length=255, description="الجامعة")
     education: str = Field(..., max_length=255, description="المؤهل التعليمي أو الكلية")
     graduation_year: int = Field(..., description="سنة التخرج الفعلية أو المتوقعة")
     skills: str = Field(..., max_length=500, description="المهارات (افصل بينها بفواصل)")
@@ -17,7 +16,6 @@ class ApplicantProfileUpdate(BaseModel):
     github_url: Optional[str] = Field(None, max_length=255, description="رابط جيت هاب")
     portfolio_url: Optional[str] = Field(None, max_length=255, description="رابط معرض الأعمال")
 
-# الشكل اللي البيانات هترجع بيه من السيرفر
 class ApplicantProfileResponse(BaseModel):
     id: int
     user_id: int
@@ -32,6 +30,7 @@ class ApplicantProfileResponse(BaseModel):
     linkedin_url: Optional[str] = None
     github_url: Optional[str] = None
     portfolio_url: Optional[str] = None
+    profile_picture_path: Optional[str] = None # حقل الصورة الشخصية الجديد للطالب
 
     class Config:
         from_attributes = True

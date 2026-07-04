@@ -20,6 +20,21 @@ class HRProfileResponse(BaseModel):
     cv_path: Optional[str] = None
     bio: Optional[str] = None
     linkedin_url: Optional[str] = None
+    skills: Optional[str] = None
+    achievements: Optional[str] = None
+    profile_picture_path: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+# الـ Schema الجديدة الخاصة ببطاقة عرض الـ HR والبحث للطالب
+class HRCardResponse(BaseModel):
+    hr_profile_id: int
+    user_id: int
+    full_name: str
+    job_title: str
+    current_company: Optional[str] = None
+    profile_picture_path: Optional[str] = None
 
     class Config:
         from_attributes = True
