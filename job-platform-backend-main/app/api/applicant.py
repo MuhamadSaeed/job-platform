@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -7,12 +8,13 @@ from app.db.dependencies import get_db, get_current_applicant
 from app.models.user import User
 from app.models.applicant_profile import ApplicantProfile
 from app.models.hr_profile import HRProfile
+from app.models.slot import HRSlot
 from app.schemas.applicant import ApplicantProfileResponse
-from app.schemas.hr import HRCardResponse
+from app.schemas.hr import HRCardResponse, HRDetailForApplicant
 
 router = APIRouter(
     prefix="/applicant",
-    tags=["Applicant Profile"]
+    tags=["Applicant Profile & HR Viewing"]
 )
 
 # تحديد أماكن حفظ الملفات والصور على السيرفر
@@ -150,7 +152,6 @@ def get_all_hrs_for_applicant(
 ):
     """جلب جميع الـ HRs المتاحين في السيستم مع إمكانية البحث بالاسم أو التخصص (وظيفة خاصة بالطالب)"""
     
-    # عمل Query يربط جدول الـ HRProfile بجدول الـ User لجلب الاسم بالتبعية
     query = db.query(HRProfile).join(User, HRProfile.user_id == User.id)
     
     if name:
@@ -173,3 +174,181 @@ def get_all_hrs_for_applicant(
         })
         
     return results
+
+
+# 🌟 Endpoint عرض صفحة الـ HR التفصيلية للطالب مع المواعيد المتاحة فقط
+@router.get("/hrs/{hr_user_id}", response_model=HRDetailForApplicant)
+def get_hr_detail_for_applicant(
+    hr_user_id: int,
+    current_applicant: User = Depends(get_current_applicant),
+    db: Session = Depends(get_db)
+):
+    """عرض بيانات الـ HR التفصيلية للطالب مع قائمة المواعيد المتاحة فقط للحجز"""
+    
+    hr_user = db.query(User).filter(User.id == hr_user_id, User.role == "hr").first()
+    if not hr_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="HR not found"
+        )
+
+    hr_profile = db.query(HRProfile).filter(HRProfile.user_id == hr_user_id).first()
+
+    available_slots = (
+        db.query(HRSlot)
+        .filter(
+            HRSlot.hr_id == hr_user_id,
+            HRSlot.is_booked == False,
+            HRSlot.is_locked == False,
+            HRSlot.start_time > datetime.now()
+        )
+        .all()
+    )
+
+    return HRDetailForApplicant(
+        id=hr_user.id,
+        full_name=hr_user.full_name,
+        job_title=hr_profile.job_title if hr_profile else None,
+        experience_years=hr_profile.experience_years if hr_profile else None,
+        current_company=hr_profile.current_company if hr_profile else None,
+        bio=hr_profile.bio if hr_profile else None,
+        linkedin_url=hr_profile.linkedin_url if hr_profile else None,
+        skills=hr_profile.skills if hr_profile else None,
+        achievements=hr_profile.achievements if hr_profile else None,
+        profile_picture_path=hr_profile.profile_picture_path if hr_profile else None,
+        available_slots=available_slots
+    )
+
+
+# 🔒 Endpoint قفل الميعاد مؤقتاً للطالب (Temporary Lock)
+@router.post("/slots/{slot_id}/lock")
+def lock_slot(
+    slot_id: int,
+    current_applicant: User = Depends(get_current_applicant),
+    db: Session = Depends(get_db)
+):
+    """قفل الميعاد مؤقتاً لمدة 10 دقائق أثناء وجود الطالب في صفحة الدفع"""
+    slot = db.query(HRSlot).filter(HRSlot.id == slot_id).first()
+    
+    if not slot:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot not found")
+        
+    if slot.is_booked:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slot is already booked")
+        
+    if slot.is_locked and hasattr(slot, "locked_until") and slot.locked_until:
+        if slot.locked_until > datetime.now():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slot is temporarily locked by another user")
+
+    slot.is_locked = True
+    
+    # حفظ ID الطالب بأي اسم حقل متوفر
+    for attr in ["locked_by_user_id", "applicant_id", "user_id"]:
+        if hasattr(slot, attr):
+            setattr(slot, attr, current_applicant.id)
+            
+    if hasattr(slot, "locked_until"):
+        slot.locked_until = datetime.now() + timedelta(minutes=10)
+
+    db.commit()
+    db.refresh(slot)
+
+    return {
+        "message": "Slot locked successfully for 10 minutes",
+        "slot_id": slot.id,
+        "is_locked": slot.is_locked
+    }
+
+
+# 💳 Endpoint تأكيد الدفع التجريبي والتأكيد النهائي للحجز
+@router.post("/slots/{slot_id}/confirm-payment")
+def confirm_payment(
+    slot_id: int,
+    current_applicant: User = Depends(get_current_applicant),
+    db: Session = Depends(get_db)
+):
+    """تأكيد الدفع التجريبي وتحويل حالة الميعاد إلى محجوز نهائياً وتسجيل الطالب"""
+    slot = db.query(HRSlot).filter(HRSlot.id == slot_id).first()
+
+    if not slot:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot not found")
+
+    # إتاحة التعديل لتسجيل الطالب وتأكيد الحجز بدون اعتراض من السيستم
+    slot.is_booked = True
+    slot.is_locked = False
+
+    # تسجيل ID الطالب الذي أتم الدفع والحجز
+    for attr in ["locked_by_user_id", "applicant_id", "user_id"]:
+        if hasattr(slot, attr):
+            setattr(slot, attr, current_applicant.id)
+
+    db.commit()
+    db.refresh(slot)
+
+    return {
+        "message": "Payment confirmed and slot booked successfully!",
+        "slot_id": slot.id,
+        "is_booked": slot.is_booked,
+        "is_locked": slot.is_locked
+    }
+
+
+# 🔔 📅 صندوق إشعارات وحجوزات الطالب مع العداد التنازلي ورابط الميتينج والرسالة
+@router.get("/my-notifications")
+# 🔔 📅 صندوق إشعارات وحجوزات الطالب مع العداد التنازلي ورابط الميتينج والرسالة
+@router.get("/my-notifications")
+# 🔔 📅 صندوق إشعارات وحجوزات الطالب مع العداد التنازلي ورابط الميتينج والرسالة
+@router.get("/my-notifications")
+def get_applicant_notifications(
+    current_applicant: User = Depends(get_current_applicant),
+    db: Session = Depends(get_db)
+):
+    """صندوق الإشعارات والمواعيد القادمة للطالب مع حساب الوقت المتبقي ورابط الاجتماع"""
+    
+    # جلب جميع المواعيد المحجوزة
+    bookings = db.query(HRSlot).filter(HRSlot.is_booked == True).all()
+    
+    notifications = []
+    now = datetime.now()
+    
+    for slot in bookings:
+        hr_user = db.query(User).filter(User.id == slot.hr_id).first()
+        hr_profile = db.query(HRProfile).filter(HRProfile.user_id == slot.hr_id).first()
+        
+        # حساب الوقت المتبقي
+        time_diff = slot.start_time - now
+        if time_diff.total_seconds() > 0:
+            hours_left = int(time_diff.total_seconds() // 3600)
+            minutes_left = int((time_diff.total_seconds() % 3600) // 60)
+            countdown_status = f"متبقي {hours_left} ساعة و {minutes_left} دقيقة"
+            is_upcoming = True
+        else:
+            countdown_status = "الميعاد حان الآن أو انتهى"
+            is_upcoming = False
+
+        # قراءة رابط الاجتماع بأي حقل مسجل به
+        meeting_link = (
+            getattr(slot, "meeting_link", None) or 
+            getattr(slot, "link", None) or 
+            getattr(slot, "zoom_link", None)
+        )
+
+        # قراءة الرسالة بأي حقل مسجلة به (سواء message أو hr_message)
+        hr_message = (
+            getattr(slot, "hr_message", None) or 
+            getattr(slot, "message", None) or 
+            getattr(slot, "notes", None)
+        )
+
+        notifications.append({
+            "slot_id": slot.id,
+            "hr_name": hr_user.full_name if hr_user else "HR",
+            "hr_company": hr_profile.current_company if hr_profile else None,
+            "start_time": slot.start_time,
+            "time_remaining": countdown_status,
+            "is_upcoming": is_upcoming,
+            "meeting_link": meeting_link,
+            "hr_message": hr_message
+        })
+        
+    return notifications

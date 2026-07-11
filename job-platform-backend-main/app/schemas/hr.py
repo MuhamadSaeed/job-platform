@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
+from app.schemas.slot import SlotResponse
 
 class HRProfileUpdate(BaseModel):
     job_title: str = Field(..., max_length=255, description="المسمى الوظيفي أو التخصص")
@@ -27,7 +28,7 @@ class HRProfileResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# الـ Schema الجديدة الخاصة ببطاقة عرض الـ HR والبحث للطالب
+# الـ Schema الخاصة ببطاقة عرض الـ HR والبحث للطالب
 class HRCardResponse(BaseModel):
     hr_profile_id: int
     user_id: int
@@ -35,6 +36,23 @@ class HRCardResponse(BaseModel):
     job_title: str
     current_company: Optional[str] = None
     profile_picture_path: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+# 🌟 الـ Schema الجديدة الخاصة بصفحة الـ HR التفصيلية مع المواعيد المتاحة للطالب
+class HRDetailForApplicant(BaseModel):
+    id: int
+    full_name: str
+    job_title: Optional[str] = None
+    experience_years: Optional[int] = None
+    current_company: Optional[str] = None
+    bio: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    skills: Optional[str] = None
+    achievements: Optional[str] = None
+    profile_picture_path: Optional[str] = None
+    available_slots: List[SlotResponse] = []  # المواعيد المتاحة فقط للحجز
 
     class Config:
         from_attributes = True

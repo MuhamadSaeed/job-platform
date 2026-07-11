@@ -8,3 +8,4 @@ class Base(DeclarativeBase):
 from app.models.user import User
 from app.models.hr_profile import HRProfile  # ضيف السطر ده هنا
 from app.models.applicant_profile import ApplicantProfile
+from app.models.slot import HRSlot  # noqa

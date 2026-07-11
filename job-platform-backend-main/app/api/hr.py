@@ -1,15 +1,20 @@
 import os
+from datetime import datetime
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
 
 from app.db.dependencies import get_db, get_current_hr
 from app.models.user import User
 from app.models.hr_profile import HRProfile
+from app.models.applicant_profile import ApplicantProfile
+from app.models.slot import HRSlot
 from app.schemas.hr import HRProfileResponse
+from app.schemas.slot import SlotCreate, SlotResponse
 
 router = APIRouter(
     prefix="/hr",
-    tags=["HR Profile"]
+    tags=["HR Profile & Slots"]
 )
 
 # تحديد أماكن حفظ الملفات والصور على السيرفر
@@ -131,3 +136,154 @@ def update_hr_profile(
     db.refresh(profile)
 
     return profile
+
+
+# ==========================================
+# 🕒 قسم إدارة المواعيد المتاحة (HR Slots)
+# ==========================================
+
+@router.post("/slots", response_model=SlotResponse, status_code=status.HTTP_201_CREATED)
+def create_slot(
+    slot_data: SlotCreate,
+    current_hr: User = Depends(get_current_hr),
+    db: Session = Depends(get_db)
+):
+    """إضافة ميعاد إنترفيو جديد متاح للـ HR"""
+    
+    # التأكد إن الميعاد في المستقبل مش في الماضي
+    if slot_data.start_time <= datetime.now():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot add a slot time in the past"
+        )
+
+    new_slot = HRSlot(
+        hr_id=current_hr.id,
+        start_time=slot_data.start_time,
+        price=slot_data.price
+    )
+    db.add(new_slot)
+    db.commit()
+    db.refresh(new_slot)
+    return new_slot
+
+
+@router.get("/slots", response_model=List[SlotResponse])
+def get_my_slots(
+    current_hr: User = Depends(get_current_hr),
+    db: Session = Depends(get_db)
+):
+    """عرض جميع المواعيد الخاصة بالـ HR الحالي"""
+    slots = db.query(HRSlot).filter(HRSlot.hr_id == current_hr.id).all()
+    return slots
+
+
+@router.delete("/slots/{slot_id}", status_code=status.HTTP_200_OK)
+def delete_slot(
+    slot_id: int,
+    current_hr: User = Depends(get_current_hr),
+    db: Session = Depends(get_db)
+):
+    """حذف ميعاد (مسموح فقط لو الميعاد غير محجوز ومفيش عليه حجز مؤقت)"""
+    slot = (
+        db.query(HRSlot)
+        .filter(HRSlot.id == slot_id, HRSlot.hr_id == current_hr.id)
+        .first()
+    )
+    
+    if not slot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Slot not found"
+        )
+
+    if slot.is_booked or slot.is_locked:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete a slot that is already booked or currently locked"
+        )
+
+    db.delete(slot)
+    db.commit()
+    return {"message": "Slot deleted successfully"}
+
+
+# 📅 Endpoint عرض المواعيد المحجوزة للـ HR مع حساب الوقت المتبقي
+@router.get("/my-schedule")
+def get_hr_schedule(
+    current_hr: User = Depends(get_current_hr),
+    db: Session = Depends(get_db)
+):
+    """عرض أجندة المواعيد المحجوزة الخاصة بالـ HR مع تفاصيل الطالب والوقت المتبقي"""
+    
+    booked_slots = (
+        db.query(HRSlot)
+        .filter(
+            HRSlot.hr_id == current_hr.id,
+            HRSlot.is_booked == True
+        )
+        .all()
+    )
+    
+    now = datetime.now()
+    results = []
+    
+    for slot in booked_slots:
+        student_user = db.query(User).filter(User.id == slot.locked_by_user_id).first()
+        student_profile = db.query(ApplicantProfile).filter(ApplicantProfile.user_id == slot.locked_by_user_id).first()
+        
+        # حساب الوقت المتبقي
+        time_diff = slot.start_time - now
+        if time_diff.total_seconds() > 0:
+            hours_left = int(time_diff.total_seconds() // 3600)
+            minutes_left = int((time_diff.total_seconds() % 3600) // 60)
+            countdown_status = f"متبقي {hours_left} ساعة و {minutes_left} دقيقة"
+        else:
+            countdown_status = "الميعاد حان الآن أو انتهى"
+
+        results.append({
+            "slot_id": slot.id,
+            "start_time": slot.start_time,
+            "time_remaining": countdown_status,
+            "price": slot.price,
+            "student_id": slot.locked_by_user_id,
+            "student_name": student_user.full_name if student_user else "Unknown Student",
+            "student_university": student_profile.university if student_profile else None,
+            "student_cv": student_profile.cv_path if student_profile else None,
+            "meeting_link": getattr(slot, "meeting_link", None),
+            "message_sent": getattr(slot, "hr_message", None)
+        })
+        
+    return results
+
+
+# 📩 🌟 Endpoint إرسال رابط الميتينج والرسالة للطالب
+@router.post("/slots/{slot_id}/send-meeting")
+def send_meeting_details(
+    slot_id: int,
+    meeting_link: str = Form(...),
+    message: Optional[str] = Form(None),
+    current_hr: User = Depends(get_current_hr),
+    db: Session = Depends(get_db)
+):
+    """الـ HR يبعت رابط الميتينج ورسالة للطالب المحدد لهذا الميعاد"""
+    slot = db.query(HRSlot).filter(HRSlot.id == slot_id, HRSlot.hr_id == current_hr.id).first()
+    
+    if not slot:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot not found")
+        
+    if not slot.is_booked:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot send meeting link for an unbooked slot")
+
+    # حفظ رابط الميتينج والرسالة
+    slot.meeting_link = meeting_link
+    slot.hr_message = message
+
+    db.commit()
+    
+    return {
+        "message": "Meeting link and message sent successfully to student!",
+        "slot_id": slot.id,
+        "meeting_link": slot.meeting_link,
+        "hr_message": message
+    }
