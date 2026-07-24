@@ -1,12 +1,36 @@
+# Virtual Environment
 venv/
+env/
+ENV/
+
+# Python Cache & Compiled files
 __pycache__/
-*.pyc
-
-.env
-
-.idea/
-.vscode/
-
+*.py[cod]
+*$py.class
 .pytest_cache/
 
+# Environment Variables (بيانات سرية وشفرات)
+.env
+.env.*
+
+# Uploads & Media Files (السير الذاتية وصور المستخدمين)
+uploads/
+/uploads
+media/
+
+# Database Files
 *.db
+*.sqlite3
+
+# IDEs & Editors settings
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+
+# Google API Credentials (ملفات سرية جداً)
+client_secret.json
+token.json
+*.json

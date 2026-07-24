@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from app.services.google_calendar import create_google_meet_event
 
 from app.db.dependencies import get_db, get_current_applicant
 from app.models.user import User
@@ -44,10 +45,10 @@ def get_applicant_profile(
 
 @router.put("/profile", response_model=ApplicantProfileResponse)
 def update_applicant_profile(
-    university: str = Form(...),          # إجباري
-    education: str = Form(...),           # إجباري (الكلية أو التخصص)
-    graduation_year: int = Form(...),     # إجباري
-    skills: str = Form(...),              # إجباري
+    university: str = Form(...),          
+    education: str = Form(...),           
+    graduation_year: int = Form(...),     
+    skills: str = Form(...),              
     is_student: bool = Form(False),
     bio: str = Form(None),
     experience: str = Form(None),
@@ -55,7 +56,7 @@ def update_applicant_profile(
     linkedin_url: str = Form(None),
     portfolio_url: str = Form(None),
     cv_file: UploadFile = File(None),
-    profile_picture: UploadFile = File(None), # حقل الصورة الشخصية المضاف للطالب
+    profile_picture: UploadFile = File(None), 
     current_applicant: User = Depends(get_current_applicant),
     db: Session = Depends(get_db)
 ):
@@ -145,12 +146,12 @@ def update_applicant_profile(
 
 @router.get("/hrs", response_model=List[HRCardResponse])
 def get_all_hrs_for_applicant(
-    name: Optional[str] = None,         # البحث بالاسم
-    specialty: Optional[str] = None,    # البحث بالتخصص
+    name: Optional[str] = None,         
+    specialty: Optional[str] = None,    
     current_applicant: User = Depends(get_current_applicant),
     db: Session = Depends(get_db)
 ):
-    """جلب جميع الـ HRs المتاحين في السيستم مع إمكانية البحث بالاسم أو التخصص (وظيفة خاصة بالطالب)"""
+    """جلب جميع الـ HRs المتاحين في السيستم مع إمكانية البحث بالاسم أو التخصص"""
     
     query = db.query(HRProfile).join(User, HRProfile.user_id == User.id)
     
@@ -242,7 +243,6 @@ def lock_slot(
 
     slot.is_locked = True
     
-    # حفظ ID الطالب بأي اسم حقل متوفر
     for attr in ["locked_by_user_id", "applicant_id", "user_id"]:
         if hasattr(slot, attr):
             setattr(slot, attr, current_applicant.id)
@@ -260,53 +260,97 @@ def lock_slot(
     }
 
 
-# 💳 Endpoint تأكيد الدفع التجريبي والتأكيد النهائي للحجز
+# 💳 Endpoint تأكيد الدفع التجريبي والتأكيد النهائي للحجز وتوليد رابط Google Meet
+# 💳 Endpoint تأكيد الدفع التجريبي والتأكيد النهائي للحجز وتوليد رابط Google Meet
 @router.post("/slots/{slot_id}/confirm-payment")
 def confirm_payment(
     slot_id: int,
     current_applicant: User = Depends(get_current_applicant),
     db: Session = Depends(get_db)
 ):
-    """تأكيد الدفع التجريبي وتحويل حالة الميعاد إلى محجوز نهائياً وتسجيل الطالب"""
+    """تأكيد الدفع التجريبي وتحويل حالة الميعاد إلى محجوز نهائياً وتوليد رابط Google Meet تلقائياً"""
     slot = db.query(HRSlot).filter(HRSlot.id == slot_id).first()
 
     if not slot:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot not found")
 
-    # إتاحة التعديل لتسجيل الطالب وتأكيد الحجز بدون اعتراض من السيستم
+    # 🔒 حماية: يمنع إعادة حجز الميعاد لو محجوز بالفعل!
+    if slot.is_booked:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="This slot is already booked by another applicant!"
+        )
+
+    hr_user = db.query(User).filter(User.id == slot.hr_id).first()
+
     slot.is_booked = True
     slot.is_locked = False
 
-    # تسجيل ID الطالب الذي أتم الدفع والحجز
     for attr in ["locked_by_user_id", "applicant_id", "user_id"]:
         if hasattr(slot, attr):
             setattr(slot, attr, current_applicant.id)
 
+    # 🚀 توليد رابط Google Meet تلقائياً
+    try:
+        student_email = getattr(current_applicant, "email", "applicant@example.com")
+        hr_name = hr_user.full_name if hr_user else "HR"
+
+        start_iso = slot.start_time.isoformat() if hasattr(slot.start_time, "isoformat") else str(slot.start_time)
+        end_time_dt = slot.start_time + timedelta(minutes=30) if hasattr(slot.start_time, "__add__") else datetime.now() + timedelta(minutes=30)
+        end_iso = end_time_dt.isoformat() if hasattr(end_time_dt, "isoformat") else str(end_time_dt)
+
+        meet_result = create_google_meet_event(
+            summary=f"HR Interview - {hr_name} & {current_applicant.full_name}",
+            start_time=start_iso,
+            end_time=end_iso,
+            applicant_email=student_email
+        )
+
+        if meet_result and meet_result.get("meet_link"):
+            for attr in ["meeting_link", "link", "zoom_link"]:
+                if hasattr(slot, attr):
+                    setattr(slot, attr, meet_result["meet_link"])
+
+    except Exception as e:
+        print(f"Calendar Error: {str(e)}")
+
     db.commit()
     db.refresh(slot)
+
+    generated_link = (
+        getattr(slot, "meeting_link", None) or 
+        getattr(slot, "link", None) or 
+        getattr(slot, "zoom_link", None)
+    )
 
     return {
         "message": "Payment confirmed and slot booked successfully!",
         "slot_id": slot.id,
         "is_booked": slot.is_booked,
-        "is_locked": slot.is_locked
+        "is_locked": slot.is_locked,
+        "meeting_link": generated_link
     }
+    
 
 
-# 🔔 📅 صندوق إشعارات وحجوزات الطالب مع العداد التنازلي ورابط الميتينج والرسالة
-@router.get("/my-notifications")
-# 🔔 📅 صندوق إشعارات وحجوزات الطالب مع العداد التنازلي ورابط الميتينج والرسالة
-@router.get("/my-notifications")
-# 🔔 📅 صندوق إشعارات وحجوزات الطالب مع العداد التنازلي ورابط الميتينج والرسالة
+# 🔔 📅 صندوق إشعارات وحجوزات الطالب مع العداد التنازلي ورابط الميتينج
+# 🔔 📅 صندوق إشعارات وحجوزات الطالب الحالي فقط مع العداد التنازلي ورابط الميتينج
 @router.get("/my-notifications")
 def get_applicant_notifications(
     current_applicant: User = Depends(get_current_applicant),
     db: Session = Depends(get_db)
 ):
-    """صندوق الإشعارات والمواعيد القادمة للطالب مع حساب الوقت المتبقي ورابط الاجتماع"""
+    """صندوق الإشعارات والمواعيد القادمة الخاصة بالطالب الحالي فقط"""
     
-    # جلب جميع المواعيد المحجوزة
-    bookings = db.query(HRSlot).filter(HRSlot.is_booked == True).all()
+    # 🔒 فلترة المواعيد المحجوزة لتظهر فقط للطالب الذي قام بالحجز!
+    bookings = (
+        db.query(HRSlot)
+        .filter(
+            HRSlot.is_booked == True,
+            HRSlot.locked_by_user_id == current_applicant.id  # يجيب حجوزات الطالب الحالي فقط
+        )
+        .all()
+    )
     
     notifications = []
     now = datetime.now()
@@ -315,7 +359,6 @@ def get_applicant_notifications(
         hr_user = db.query(User).filter(User.id == slot.hr_id).first()
         hr_profile = db.query(HRProfile).filter(HRProfile.user_id == slot.hr_id).first()
         
-        # حساب الوقت المتبقي
         time_diff = slot.start_time - now
         if time_diff.total_seconds() > 0:
             hours_left = int(time_diff.total_seconds() // 3600)
@@ -326,18 +369,10 @@ def get_applicant_notifications(
             countdown_status = "الميعاد حان الآن أو انتهى"
             is_upcoming = False
 
-        # قراءة رابط الاجتماع بأي حقل مسجل به
         meeting_link = (
             getattr(slot, "meeting_link", None) or 
             getattr(slot, "link", None) or 
             getattr(slot, "zoom_link", None)
-        )
-
-        # قراءة الرسالة بأي حقل مسجلة به (سواء message أو hr_message)
-        hr_message = (
-            getattr(slot, "hr_message", None) or 
-            getattr(slot, "message", None) or 
-            getattr(slot, "notes", None)
         )
 
         notifications.append({
@@ -347,8 +382,7 @@ def get_applicant_notifications(
             "start_time": slot.start_time,
             "time_remaining": countdown_status,
             "is_upcoming": is_upcoming,
-            "meeting_link": meeting_link,
-            "hr_message": hr_message
+            "meeting_link": meeting_link
         })
         
     return notifications

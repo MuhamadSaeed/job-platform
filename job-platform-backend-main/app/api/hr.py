@@ -53,10 +53,10 @@ def update_hr_profile(
     current_company: str = Form(None),
     bio: str = Form(None),
     linkedin_url: str = Form(None),
-    skills: str = Form(None),          # حقل المهارات الجديد للـ HR
-    achievements: str = Form(None),    # حقل الإنجازات الجديد للـ HR
+    skills: str = Form(None),          
+    achievements: str = Form(None),    
     cv_file: UploadFile = File(None),
-    profile_picture: UploadFile = File(None), # حقل الصورة الشخصية الجديد للـ HR
+    profile_picture: UploadFile = File(None),
     current_hr: User = Depends(get_current_hr),
     db: Session = Depends(get_db)
 ):
@@ -150,7 +150,6 @@ def create_slot(
 ):
     """إضافة ميعاد إنترفيو جديد متاح للـ HR"""
     
-    # التأكد إن الميعاد في المستقبل مش في الماضي
     if slot_data.start_time <= datetime.now():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -214,7 +213,7 @@ def get_hr_schedule(
     current_hr: User = Depends(get_current_hr),
     db: Session = Depends(get_db)
 ):
-    """عرض أجندة المواعيد المحجوزة الخاصة بالـ HR مع تفاصيل الطالب والوقت المتبقي"""
+    """عرض أجندة المواعيد المحجوزة الخاصة بالـ HR مع تفاصيل الطالب والوقت المتبقي ورابط الاجتماع الأوتوماتيكي"""
     
     booked_slots = (
         db.query(HRSlot)
@@ -250,40 +249,7 @@ def get_hr_schedule(
             "student_name": student_user.full_name if student_user else "Unknown Student",
             "student_university": student_profile.university if student_profile else None,
             "student_cv": student_profile.cv_path if student_profile else None,
-            "meeting_link": getattr(slot, "meeting_link", None),
-            "message_sent": getattr(slot, "hr_message", None)
+            "meeting_link": getattr(slot, "meeting_link", None)
         })
         
     return results
-
-
-# 📩 🌟 Endpoint إرسال رابط الميتينج والرسالة للطالب
-@router.post("/slots/{slot_id}/send-meeting")
-def send_meeting_details(
-    slot_id: int,
-    meeting_link: str = Form(...),
-    message: Optional[str] = Form(None),
-    current_hr: User = Depends(get_current_hr),
-    db: Session = Depends(get_db)
-):
-    """الـ HR يبعت رابط الميتينج ورسالة للطالب المحدد لهذا الميعاد"""
-    slot = db.query(HRSlot).filter(HRSlot.id == slot_id, HRSlot.hr_id == current_hr.id).first()
-    
-    if not slot:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Slot not found")
-        
-    if not slot.is_booked:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot send meeting link for an unbooked slot")
-
-    # حفظ رابط الميتينج والرسالة
-    slot.meeting_link = meeting_link
-    slot.hr_message = message
-
-    db.commit()
-    
-    return {
-        "message": "Meeting link and message sent successfully to student!",
-        "slot_id": slot.id,
-        "meeting_link": slot.meeting_link,
-        "hr_message": message
-    }
