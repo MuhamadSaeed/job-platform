@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
@@ -150,7 +150,9 @@ def create_slot(
 ):
     """إضافة ميعاد إنترفيو جديد متاح للـ HR"""
     
-    if slot_data.start_time <= datetime.now():
+    now = datetime.now(timezone.utc)
+
+    if slot_data.start_time <= now:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot add a slot time in the past"
